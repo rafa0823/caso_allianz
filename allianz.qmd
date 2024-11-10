@@ -1,0 +1,190 @@
+---
+title: "Caso Allianz"
+format:
+  html:
+    embed-resources: true
+---
+
+## Librerías
+
+```{python}
+import numpy as np
+import pandas as pd
+import seaborn as sns
+import matplotlib.pyplot as plt
+from scipy.stats import kurtosis
+from sklearn.impute import KNNImputer
+from sklearn.preprocessing import LabelEncoder
+from sklearn.utils import resample
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import accuracy_score
+#!pip install xgboost
+from xgboost import XGBClassifier
+from sklearn.metrics import classification_report, confusion_matrix, roc_curve, f1_score, precision_score, recall_score
+from sklearn.preprocessing import StandardScaler
+from sklearn.preprocessing import OneHotEncoder
+from scipy.sparse import hstack
+from sklearn.compose import ColumnTransformer
+
+
+import warnings 
+warnings.filterwarnings("ignore")
+```
+
+## Funciones
+
+```{python}
+def remove_outliers_iqr(df, columns):
+    for col in columns:
+        q1 = df[col].quantile(0.25)
+        q3 = df[col].quantile(0.75)
+        iqr = q3 - q1
+        lower_bound = q1 - 1.5 * iqr
+        upper_bound = q3 + 1.5 * iqr
+        df = df[(df[col] >= lower_bound) & (df[col] <= upper_bound)]
+    return df
+  
+def crear_surrogate_columnas(df, columnas):
+    for col in columnas:
+        # Crear una nueva columna con el nombre original seguido de '.surrogate'
+        nueva_columna = col + '.surrogate'
+        # Asignar 1 si el valor es nulo y 0 si no lo es
+        df[nueva_columna] = df[col].isnull().astype(int)
+    return df
+```
+
+# Exploración de datos
+
+```{python}
+df = pd.read_csv("data-raw/bd_allianz.csv")
+df.info()
+duplicadas = df[df.duplicated()]
+
+print("\nFilas duplicadas:")
+print(duplicadas)
+
+df = df.drop_duplicates()
+df.shape
+```
+
+## Transformación de tipo de datos
+
+```{python}
+# Convert to list if it's not already
+convertir = df.select_dtypes(exclude=['float64', 'int64']).columns.tolist()
+
+# Add a new element
+convertir.extend(['Customer_ID', "Is_direct_debit"])
+
+df[convertir] = df[convertir].apply(lambda x: x.astype('category'))
+
+df.info()
+
+df["Broker_cor"] = df["Broker_cor"].str.replace(',', '').astype("float64")
+```
+
+```{python}
+df.describe()
+
+df.isnull().sum()/df.shape[0]
+```
+
+# Análisis exploratorio de datos
+
+```{python}
+df["Is_direct_debit"].value_counts()
+```
+
+```{python}
+sns.countplot(data=df, x="Is_direct_debit", hue = "Is_direct_debit")
+plt.xlabel("Is Direct Debit")
+plt.ylabel("Count")
+plt.title("Distribución de cuentas domiciliados")
+plt.show()
+```
+
+```{python}
+cat_cols = df.select_dtypes(include = "category").columns
+cat_cols = cat_cols.drop(labels=['Broker_account_number', 'Contract_number', 'Customer_ID'])
+```
+
+## Distribución de variables categóricas
+
+```{python}
+#| label: gráficos
+#| cache: true
+# Set up the figure and axes for six subplots (3 rows, 2 columns)
+
+# Increase the height to allow more space for each subplot
+fig, axs = plt.subplots(nrows=6, ncols=1, figsize=(8, 20))  # Adjusted height
+
+# List of the columns to plot
+columns = ["Broker_urbanization", "Customer_urbanization", "Broker_province", 
+           "Customer_province", "Customer_age", "Customer_type"]
+
+# Loop through each column and create a countplot
+for i, col in enumerate(columns):
+    sns.countplot(data=df, x=col, hue="Is_direct_debit", ax=axs[i])
+    axs[i].set_title(f"Distribution of {col}")
+    axs[i].set_xlabel(col)
+    axs[i].set_ylabel("Count")
+    axs[i].set_xticklabels(axs[i].get_xticklabels(), rotation=45, ha='right')
+
+# Adjust layout for better spacing
+fig.tight_layout(h_pad=2, w_pad=2)  # Add horizontal padding
+
+# Show the plots
+plt.show()
+
+```
+
+## Distribución de variables numéricas
+
+```{python}
+scaler = StandardScaler()
+df["Broker_cor_scaled"] = scaler.fit_transform(df[["Broker_cor"]])
+```
+
+```{python}
+plt.figure(figsize=(10, 6))
+sns.violinplot(data=df, x="Broker_cor_scaled", hue="Is_direct_debit")
+plt.title("Violin Plot of Scaled Broker_cor")
+plt.xlabel("Broker_cor_scaled")
+plt.show()
+```
+## One hot encoding
+```{python}
+#| label: one hot encoding
+#| cache: true
+# Initialize encoder with sparse output to save memory
+encoder = OneHotEncoder(sparse_output=True, drop="first")
+
+categorical_columns = df.select_dtypes(include = "category").columns.drop(["Is_direct_debit", "Customer_ID", "Contract_number"])
+
+preprocessor = ColumnTransformer(
+    transformers=[
+        ('cat', OneHotEncoder(drop="first", sparse_output=True), categorical_columns)
+    ],
+    remainder='passthrough'  # Keep non-categorical columns as they are
+)
+
+df = df.drop(["Customer_ID", "Contract_number"], axis=1)
+
+# Fit and transform the data incrementally
+df_transformed = preprocessor.fit_transform(df)
+
+# Convert the result to a DataFrame if needed
+encoded_df = pd.DataFrame.sparse.from_spmatrix(
+    df_transformed, 
+    columns=preprocessor.get_feature_names_out()
+)
+                                    
+```
+
+```{python}
+# Convert to dense format temporarily to save as CSV
+df_dense = encoded_df.sparse.to_dense()
+df_dense.to_csv("encoded_data.csv", index=False)
+```
+
+

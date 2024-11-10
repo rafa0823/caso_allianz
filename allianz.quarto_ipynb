@@ -1,0 +1,330 @@
+{
+  "cells": [
+    {
+      "cell_type": "markdown",
+      "metadata": {},
+      "source": [
+        "---\n",
+        "title: \"Caso Allianz\"\n",
+        "format:\n",
+        "  html:\n",
+        "    embed-resources: true\n",
+        "---\n",
+        "\n",
+        "\n",
+        "## Librerías\n"
+      ],
+      "id": "bd2fbd41"
+    },
+    {
+      "cell_type": "code",
+      "metadata": {},
+      "source": [
+        "import numpy as np\n",
+        "import pandas as pd\n",
+        "import seaborn as sns\n",
+        "import matplotlib.pyplot as plt\n",
+        "from scipy.stats import kurtosis\n",
+        "from sklearn.impute import KNNImputer\n",
+        "from sklearn.preprocessing import LabelEncoder\n",
+        "from sklearn.utils import resample\n",
+        "from sklearn.model_selection import train_test_split\n",
+        "from sklearn.metrics import accuracy_score\n",
+        "#!pip install xgboost\n",
+        "from xgboost import XGBClassifier\n",
+        "from sklearn.metrics import classification_report, confusion_matrix, roc_curve, f1_score, precision_score, recall_score\n",
+        "from sklearn.preprocessing import StandardScaler\n",
+        "from sklearn.preprocessing import OneHotEncoder\n",
+        "from scipy.sparse import hstack\n",
+        "from sklearn.compose import ColumnTransformer\n",
+        "\n",
+        "\n",
+        "import warnings \n",
+        "warnings.filterwarnings(\"ignore\")"
+      ],
+      "id": "78bbaa84",
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {},
+      "source": [
+        "## Funciones\n"
+      ],
+      "id": "5c9a798d"
+    },
+    {
+      "cell_type": "code",
+      "metadata": {},
+      "source": [
+        "def remove_outliers_iqr(df, columns):\n",
+        "    for col in columns:\n",
+        "        q1 = df[col].quantile(0.25)\n",
+        "        q3 = df[col].quantile(0.75)\n",
+        "        iqr = q3 - q1\n",
+        "        lower_bound = q1 - 1.5 * iqr\n",
+        "        upper_bound = q3 + 1.5 * iqr\n",
+        "        df = df[(df[col] >= lower_bound) & (df[col] <= upper_bound)]\n",
+        "    return df\n",
+        "  \n",
+        "def crear_surrogate_columnas(df, columnas):\n",
+        "    for col in columnas:\n",
+        "        # Crear una nueva columna con el nombre original seguido de '.surrogate'\n",
+        "        nueva_columna = col + '.surrogate'\n",
+        "        # Asignar 1 si el valor es nulo y 0 si no lo es\n",
+        "        df[nueva_columna] = df[col].isnull().astype(int)\n",
+        "    return df"
+      ],
+      "id": "87b5bfbd",
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {},
+      "source": [
+        "# Exploración de datos\n"
+      ],
+      "id": "4815b597"
+    },
+    {
+      "cell_type": "code",
+      "metadata": {},
+      "source": [
+        "df = pd.read_csv(\"data-raw/bd_allianz.csv\")\n",
+        "df.info()\n",
+        "duplicadas = df[df.duplicated()]\n",
+        "\n",
+        "print(\"\\nFilas duplicadas:\")\n",
+        "print(duplicadas)\n",
+        "\n",
+        "df = df.drop_duplicates()\n",
+        "df.shape"
+      ],
+      "id": "73cce2a6",
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {},
+      "source": [
+        "## Transformación de tipo de datos\n"
+      ],
+      "id": "50161316"
+    },
+    {
+      "cell_type": "code",
+      "metadata": {},
+      "source": [
+        "# Convert to list if it's not already\n",
+        "convertir = df.select_dtypes(exclude=['float64', 'int64']).columns.tolist()\n",
+        "\n",
+        "# Add a new element\n",
+        "convertir.extend(['Customer_ID', \"Is_direct_debit\"])\n",
+        "\n",
+        "df[convertir] = df[convertir].apply(lambda x: x.astype('category'))\n",
+        "\n",
+        "df.info()\n",
+        "\n",
+        "df[\"Broker_cor\"] = df[\"Broker_cor\"].str.replace(',', '').astype(\"float64\")"
+      ],
+      "id": "1234ec00",
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "cell_type": "code",
+      "metadata": {},
+      "source": [
+        "df.describe()\n",
+        "\n",
+        "df.isnull().sum()/df.shape[0]"
+      ],
+      "id": "5745a261",
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {},
+      "source": [
+        "# Análisis exploratorio de datos\n"
+      ],
+      "id": "188606d1"
+    },
+    {
+      "cell_type": "code",
+      "metadata": {},
+      "source": [
+        "df[\"Is_direct_debit\"].value_counts()"
+      ],
+      "id": "202a336a",
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "cell_type": "code",
+      "metadata": {},
+      "source": [
+        "sns.countplot(data=df, x=\"Is_direct_debit\", hue = \"Is_direct_debit\")\n",
+        "plt.xlabel(\"Is Direct Debit\")\n",
+        "plt.ylabel(\"Count\")\n",
+        "plt.title(\"Distribución de cuentas domiciliados\")\n",
+        "plt.show()"
+      ],
+      "id": "d1ad3179",
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "cell_type": "code",
+      "metadata": {},
+      "source": [
+        "cat_cols = df.select_dtypes(include = \"category\").columns\n",
+        "cat_cols = cat_cols.drop(labels=['Broker_account_number', 'Contract_number', 'Customer_ID'])"
+      ],
+      "id": "7e948f58",
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {},
+      "source": [
+        "## Distribución de variables categóricas\n"
+      ],
+      "id": "6a283c68"
+    },
+    {
+      "cell_type": "code",
+      "metadata": {
+        "cache": true
+      },
+      "source": [
+        "#| label: gráficos\n",
+        "# Set up the figure and axes for six subplots (3 rows, 2 columns)\n",
+        "\n",
+        "# Increase the height to allow more space for each subplot\n",
+        "fig, axs = plt.subplots(nrows=6, ncols=1, figsize=(8, 20))  # Adjusted height\n",
+        "\n",
+        "# List of the columns to plot\n",
+        "columns = [\"Broker_urbanization\", \"Customer_urbanization\", \"Broker_province\", \n",
+        "           \"Customer_province\", \"Customer_age\", \"Customer_type\"]\n",
+        "\n",
+        "# Loop through each column and create a countplot\n",
+        "for i, col in enumerate(columns):\n",
+        "    sns.countplot(data=df, x=col, hue=\"Is_direct_debit\", ax=axs[i])\n",
+        "    axs[i].set_title(f\"Distribution of {col}\")\n",
+        "    axs[i].set_xlabel(col)\n",
+        "    axs[i].set_ylabel(\"Count\")\n",
+        "    axs[i].set_xticklabels(axs[i].get_xticklabels(), rotation=45, ha='right')\n",
+        "\n",
+        "# Adjust layout for better spacing\n",
+        "fig.tight_layout(h_pad=2, w_pad=2)  # Add horizontal padding\n",
+        "\n",
+        "# Show the plots\n",
+        "plt.show()"
+      ],
+      "id": "graficos",
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {},
+      "source": [
+        "## Distribución de variables numéricas\n"
+      ],
+      "id": "7fad01b3"
+    },
+    {
+      "cell_type": "code",
+      "metadata": {},
+      "source": [
+        "scaler = StandardScaler()\n",
+        "df[\"Broker_cor_scaled\"] = scaler.fit_transform(df[[\"Broker_cor\"]])"
+      ],
+      "id": "4507d3f8",
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "cell_type": "code",
+      "metadata": {},
+      "source": [
+        "plt.figure(figsize=(10, 6))\n",
+        "sns.violinplot(data=df, x=\"Broker_cor_scaled\", hue=\"Is_direct_debit\")\n",
+        "plt.title(\"Violin Plot of Scaled Broker_cor\")\n",
+        "plt.xlabel(\"Broker_cor_scaled\")\n",
+        "plt.show()"
+      ],
+      "id": "6b3a2b76",
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {},
+      "source": [
+        "## One hot encoding"
+      ],
+      "id": "53b2a2ff"
+    },
+    {
+      "cell_type": "code",
+      "metadata": {
+        "cache": true
+      },
+      "source": [
+        "#| label: one hot encoding\n",
+        "# Initialize encoder with sparse output to save memory\n",
+        "encoder = OneHotEncoder(sparse_output=True, drop=\"first\")\n",
+        "\n",
+        "categorical_columns = df.select_dtypes(include = \"category\").columns.drop([\"Is_direct_debit\", \"Customer_ID\", \"Contract_number\"])\n",
+        "\n",
+        "preprocessor = ColumnTransformer(\n",
+        "    transformers=[\n",
+        "        ('cat', OneHotEncoder(drop=\"first\", sparse_output=True), categorical_columns)\n",
+        "    ],\n",
+        "    remainder='passthrough'  # Keep non-categorical columns as they are\n",
+        ")\n",
+        "\n",
+        "df = df.drop([\"Customer_ID\", \"Contract_number\"], axis=1)\n",
+        "\n",
+        "# Fit and transform the data incrementally\n",
+        "df_transformed = preprocessor.fit_transform(df)\n",
+        "\n",
+        "# Convert the result to a DataFrame if needed\n",
+        "encoded_df = pd.DataFrame.sparse.from_spmatrix(\n",
+        "    df_transformed, \n",
+        "    columns=preprocessor.get_feature_names_out()\n",
+        ")\n"
+      ],
+      "id": "one-hot-encoding",
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "cell_type": "code",
+      "metadata": {},
+      "source": [
+        "encoded_df.to_csv(\"data/allianz_bd2.csv\")"
+      ],
+      "id": "fe0b8a77",
+      "execution_count": null,
+      "outputs": []
+    }
+  ],
+  "metadata": {
+    "kernelspec": {
+      "name": "python3",
+      "language": "python",
+      "display_name": "Python 3 (ipykernel)",
+      "path": "/Users/rafaellopez/Library/Python/3.11/share/jupyter/kernels/python3"
+    }
+  },
+  "nbformat": 4,
+  "nbformat_minor": 5
+}
