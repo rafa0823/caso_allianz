@@ -25,6 +25,8 @@ from sklearn.preprocessing import StandardScaler
 from sklearn.preprocessing import OneHotEncoder
 from scipy.sparse import hstack
 from sklearn.compose import ColumnTransformer
+from scipy.sparse import save_npz
+from scipy.sparse import load_npz
 
 
 import warnings 
@@ -182,9 +184,26 @@ encoded_df = pd.DataFrame.sparse.from_spmatrix(
 ```
 
 ```{python}
-# Convert to dense format temporarily to save as CSV
-df_dense = encoded_df.sparse.to_dense()
-df_dense.to_csv("encoded_data.csv", index=False)
+# Extract sparse matrix from encoded data
+sparse_matrix = encoded_df.sparse.to_coo()
+save_npz("data-raw/encoded_data_sparse.npz", sparse_matrix)
+
+column_names = pd.DataFrame(encoded_df.columns, columns=["column_names"])
+column_names.to_csv("data-raw/column_names.csv", index=False)
 ```
 
+```{python}
+sparse_matrix = load_npz("data-raw/encoded_data_sparse.npz")
+
+# Step 2: Load column names
+column_names = pd.read_csv("data-raw/column_names.csv")["column_names"].tolist()
+
+# Step 3: Create a sparse DataFrame with loaded data and column names
+encoded_df = pd.DataFrame.sparse.from_spmatrix(sparse_matrix, columns=column_names)
+```
+
+
+```{python}
+encoded_df.to_csv("data/allianz_bd_final.csv")
+```
 
