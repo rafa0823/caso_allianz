@@ -155,6 +155,37 @@ plt.xlabel("Broker_cor_scaled")
 plt.show()
 ```
 ## One hot encoding
+
+```{python}
+encoder = OneHotEncoder(drop='first')  # drop='first' avoids the dummy variable trap
+
+categorical_columns = df.select_dtypes(include = "category").columns.drop(["Is_direct_debit", "Customer_ID", "Contract_number"])
+# Fit and transform the categorical columns, resulting in a NumPy array
+encoded_array = encoder.fit_transform(df[categorical_columns])
+```
+
+```{python}
+# Create a DataFrame with the encoded columns using the feature names from the encoder
+encoded_df = pd.DataFrame(encoded_array.todense(), columns=encoder.get_feature_names_out(categorical_columns))
+```
+
+```{python}
+df = df.drop(columns=categorical_columns)
+```
+
+```{python}
+df_model = pd.concat([df.reset_index(), encoded_df], axis=1)
+```
+
+```{python}
+df_cat = pd.read_csv("data-raw/cat_bd.csv")
+df_int = pd.read_csv("data-raw/int_bd.csv")
+```
+
+```{python}
+df_model = pd.concat([df_cat, df_int], axis=1)
+```
+
 ```{python}
 #| label: one hot encoding
 #| cache: true
