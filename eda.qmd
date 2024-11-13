@@ -1,0 +1,236 @@
+---
+title: "Caso Allianz"
+title-slide-attributes:
+  data-background-image: "https://scontent-qro1-2.xx.fbcdn.net/v/t39.30808-6/451866780_888003326685480_5220826837090190936_n.jpg?_nc_cat=111&ccb=1-7&_nc_sid=cc71e4&_nc_ohc=PNM-6xBYk0kQ7kNvgHtZcUg&_nc_zt=23&_nc_ht=scontent-qro1-2.xx&_nc_gid=AbFZEEGrZp0Qt8QX4fPI67X&oh=00_AYAeUfah_7Sl1jv6fVtfzv_qsdj7dsJPAbO06DwWtO88zw&oe=673AC112"
+  data-background-opacity: "0.5"
+warning: false
+format:
+  revealjs:
+    pagetitle: "Data Minning 2"
+    scrollable: true
+    slide-number: true
+    show-slide-number: all
+    logo: allianz.png
+    theme: simple
+    transition: slide
+    menu: false 
+    footer: "Los amigos del 7.5"
+execute:
+  code-fold: true
+self-contained: true
+---
+
+```{python}
+#| echo: false
+#| include: false
+import pandas as pd
+import numpy as np
+import seaborn as sns
+import matplotlib.pyplot as plt
+from sklearn.preprocessing import StandardScaler, LabelEncoder, OrdinalEncoder
+from sklearn.cluster import KMeans
+```
+
+```{python}
+#| echo: false
+#| include: false
+#| cache: true
+df = pd.read_csv("data-raw/bd_allianz.csv")
+df.info()
+duplicadas = df[df.duplicated()]
+
+print("\nFilas duplicadas:")
+print(duplicadas)
+
+df = df.drop_duplicates()
+df.shape
+```
+
+```{python}
+#| include: false
+#| echo: false
+# Convert to list if it's not already
+convertir = df.select_dtypes(exclude=['float64', 'int64']).columns.tolist()
+
+# Add a new element
+convertir.extend(['Customer_ID', "Is_direct_debit"])
+
+df[convertir] = df[convertir].apply(lambda x: x.astype('category'))
+
+df["Broker_cor"] = df["Broker_cor"].str.replace(',', '').astype("float64")
+
+palette={1: "#003781", 0: "#219ebc"} 
+
+rc = {'figure.figsize':(10,6),
+      'axes.facecolor':'white',
+      'axes.grid' : False,
+      'font.family':'Arial',
+      'font.size' : 15}
+plt.rcParams.update(rc)
+```
+
+## Objetivos 
+
+::: {.incremental}
+
+* Entender el comportamiento de clientes y brokers
+* Segmentación de clientes
+* Predecir qué clientes adoptarán la domicialización de pagos y cuáles sus principales características
+
+:::
+
+# Comportamiento de clientes
+
+## Adopción de domicialización 
+
+```{python}
+#| cache: true
+plt.figure(figsize=(10, 6))
+ax = plt.gca()
+ax.spines["top"].set_visible(False)
+ax.spines["right"].set_visible(False)
+sns.countplot(data=df, x="Is_direct_debit", hue = "Is_direct_debit", palette=palette, legend=False)
+ax.set_xticklabels(["No", "Sí"])
+plt.xlabel("Domicialización")
+plt.ylabel("Número de cuentas")
+plt.title("Distribución de cuentas domiciliadas")
+plt.show()
+```
+
+```{python}
+#| include: false
+cat_cols = df.select_dtypes(include = "category").columns
+cat_cols = cat_cols.drop(labels=['Broker_account_number', 'Contract_number', 'Customer_ID'])
+```
+
+## Distribución de variables categóricas
+
+```{python}
+#| label: gráficos
+#| cache: true
+# Set up the figure and axes for six subplots (3 rows, 2 columns)
+categorical_vars = ['Customer_type', 'Customer_age', 'Customer_region', 
+                    'Customer_urbanization', 'Broker_urbanization', 'Payment_frequency', 
+                    'Line_of_business']
+
+# Set up the layout for multiple bar charts
+for var in categorical_vars:
+    plt.figure(figsize=(10, 6))
+    df[var].value_counts().plot(kind='bar',color=palette[1])
+    plt.title(f'Distribution of {var}')
+    plt.xlabel(var)
+    plt.ylabel('Número de cuentas')
+    plt.xticks(rotation=45)
+    ax = plt.gca()
+    ax.spines["top"].set_visible(False)
+    ax.spines["right"].set_visible(False)
+    plt.show()
+
+```
+
+## Medición del desempeño de los brokers
+
+```{python}
+#| include: false
+#| cache: true
+scaler = StandardScaler()
+df["Broker_cor_scaled"] = scaler.fit_transform(df[["Broker_cor"]])
+```
+
+```{python}
+plt.figure(figsize=(10, 6))
+sns.violinplot(data=df, x="Broker_cor_scaled", color=palette[1])
+plt.title("Distribución del Índice de Rentabilidad del Corredor")
+plt.xlabel("Índice de rentabilidad")
+ax = plt.gca()
+ax.spines["top"].set_visible(False)
+ax.spines["right"].set_visible(False)
+ax.spines["left"].set_visible(False)
+plt.show()
+```
+
+# Segmentación de clientes
+
+```{python}
+#| include: false
+#| cache: true
+
+features = ['Customer_region', 'Customer_type', 'Payment_frequency', "Customer_age", "Payment_frequency", "Annual_premium"]
+
+df_encoded = df.copy()
+for col in ['Customer_region', 'Customer_type', 'Payment_frequency']:
+    df_encoded[col] = LabelEncoder().fit_transform(df_encoded[col])
+    
+age_order = ['A = 18-24', 'B = 25-29', 'C = 30-39', 'D = 40-69', 'S = +69', 'No age']
+
+# Convertimos la columna de edad respetando el orden específico
+ordinal_encoder = OrdinalEncoder(categories=[age_order])
+df_encoded['Customer_age'] = ordinal_encoder.fit_transform(df[['Customer_age']])
+
+# Escalamiento de las características numéricas
+scaler = StandardScaler()
+X_scaled = scaler.fit_transform(df_encoded[features])
+
+# Determinar el número óptimo de clusters utilizando el método del codo
+inertia = []
+range_n_clusters = range(1, 11)
+for n_clusters in range_n_clusters:
+    kmeans = KMeans(n_clusters=n_clusters, random_state=0)
+    kmeans.fit(X_scaled)
+    inertia.append(kmeans.inertia_)
+    
+plt.figure(figsize=(10, 6))
+plt.plot(range_n_clusters, inertia, marker='o')
+plt.xlabel('Número de Clusters')
+plt.ylabel('Inercia')
+plt.title('Método del Codo para Determinar el Número de Clusters')
+plt.show()
+
+n_clusters_optimo = 3
+kmeans = KMeans(n_clusters=n_clusters_optimo, random_state=0)
+df_encoded['Customer_segment'] = kmeans.fit_predict(X_scaled)
+
+# Análisis de los resultados de segmentación
+# Ver la cantidad de clientes en cada segmento
+print(df_encoded['Customer_segment'].value_counts())
+
+plt.figure(figsize=(10, 6))
+plt.scatter(X_scaled[:, 0], X_scaled[:, 1], c=df_encoded['Customer_segment'], cmap='viridis')
+plt.xlabel('Customer_age')
+plt.ylabel('Annual_premium')
+plt.title('Segmentación de Clientes por Edad y Prima Anual')
+plt.show()
+```
+
+## Clasificación de clientes
+
+```{python}
+#| cache: true
+#| layout-nrow: 2
+customer_segment_counts = df_encoded['Customer_segment'].value_counts()
+
+# Crear la gráfica de barras
+plt.figure(figsize=(10, 6))
+customer_segment_counts.plot(kind='bar', color=palette[1])
+plt.title('Conteo de Clientes por Segmento')
+plt.xlabel('Segmento de Cliente')
+plt.ylabel('Conteo')
+ax = plt.gca()
+ax.set_xticklabels(["1", "2", "3"])
+ax.spines["top"].set_visible(False)
+ax.spines["right"].set_visible(False)
+plt.show()
+```
+
+## Características relevante
+
+```{python}
+plt.figure(figsize=(10, 6))
+sns.scatterplot(x='Customer_age', y='Annual_premium', hue='Customer_segment', data=df_encoded, palette='viridis')
+plt.xlabel('Customer Age')
+plt.ylabel('Annual Premium')
+plt.title('Segmentación de Clientes por Edad y Prima Anual')
+plt.legend(title="Customer Segment")
+plt.show()
+```
+
