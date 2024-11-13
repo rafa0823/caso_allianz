@@ -1,0 +1,10 @@
+Annual_premium
+Broker_cor_scaled
+Payment_frequency_Semi-annually
+Payment_frequency_Quarterly
+Customer_urbanization_Urban
+Customer_age_S = +69
+Customer_type_Physical person
+Customer_region_WAL
+Customer_age_D = 40-69
+Customer_age_No age
