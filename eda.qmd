@@ -1,7 +1,7 @@
 ---
 title: "Caso Allianz"
 title-slide-attributes:
-  data-background-image: "https://scontent-qro1-2.xx.fbcdn.net/v/t39.30808-6/451866780_888003326685480_5220826837090190936_n.jpg?_nc_cat=111&ccb=1-7&_nc_sid=cc71e4&_nc_ohc=PNM-6xBYk0kQ7kNvgHtZcUg&_nc_zt=23&_nc_ht=scontent-qro1-2.xx&_nc_gid=AbFZEEGrZp0Qt8QX4fPI67X&oh=00_AYAeUfah_7Sl1jv6fVtfzv_qsdj7dsJPAbO06DwWtO88zw&oe=673AC112"
+  data-background-image: allianz-arena.jpeg
   data-background-opacity: "0.5"
 warning: false
 format:
@@ -11,12 +11,14 @@ format:
     slide-number: true
     show-slide-number: all
     logo: allianz.png
-    theme: simple
+    theme:
+      - _extensions/grantmcdermott/clean/clean.scss
     transition: slide
     menu: false 
     footer: "Los amigos del 7.5"
+    code-fold: true
 execute:
-  code-fold: true
+  echo: false
 self-contained: true
 ---
 
@@ -79,13 +81,13 @@ plt.rcParams.update(rc)
 
 :::
 
-# Comportamiento de clientes
+# Comportamiento de clientes {background-color=#219ebc backgroun-opacity=0.8}
 
-## Adopción de domicialización 
+## Solo el 21% de los clientes tiene domiciliación
 
 ```{python}
 #| cache: true
-plt.figure(figsize=(10, 6))
+plt.figure(figsize=(9, 5))
 ax = plt.gca()
 ax.spines["top"].set_visible(False)
 ax.spines["right"].set_visible(False)
@@ -128,6 +130,16 @@ for var in categorical_vars:
 
 ```
 
+## Características generales de las cuentas 
+
+Los clientes de Allianz son principalmente Personas físicas de mediana edad que habitan principalmente en la región rural de Flandes quienes prefieren contratar sus seguros de auto con póliza anual.
+
+::: {.absoute left=200}
+
+![](clientes.jpeg) 
+
+:::
+
 ## Medición del desempeño de los brokers
 
 ```{python}
@@ -149,7 +161,7 @@ ax.spines["left"].set_visible(False)
 plt.show()
 ```
 
-# Segmentación de clientes
+# Segmentación de clientes {background-color=#219ebc backgroun-opacity=0.8}
 
 ```{python}
 #| include: false
@@ -197,10 +209,11 @@ print(cluster_descriptions)
 
 :::
 
-# Predicción de clientes y análisis de principales características
+# Predicción de clientes y análisis de principales características {background-color=#219ebc backgroun-opacity=0.8}
 
 ## Características Principales
 ### Regresión logística
+A pesar de que solo el 4% de los clientes contratan poliza semestral, tiene gran importancia en este modelo
 
 ```{python}
 data = {
@@ -274,6 +287,8 @@ plt.show()
 
 ## Características principales
 ### Random Forest
+
+En este modelo, aquellos clientes con un valor de póliza premium (por arriba de los 541 eur) es la variable que explica mejor el modelo.
 
 ```{python}
 data = {
