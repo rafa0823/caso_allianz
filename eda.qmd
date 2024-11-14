@@ -154,83 +154,232 @@ plt.show()
 ```{python}
 #| include: false
 #| cache: true
+# Selecting relevant variables for clustering
 
-features = ['Customer_region', 'Customer_type', 'Payment_frequency', "Customer_age", "Payment_frequency", "Annual_premium"]
+data_clustering = df[['Annual_premium', 'Payment_frequency', 'Is_direct_debit', 
+                        'Customer_type', 'Customer_region', 'Customer_age']].copy()
 
-df_encoded = df.copy()
-for col in ['Customer_region', 'Customer_type', 'Payment_frequency']:
-    df_encoded[col] = LabelEncoder().fit_transform(df_encoded[col])
+# Mapeo de la variable 'Customer_age' si viene en intervalos
+age_mapping = {"No age": 0, "C = 30-39": 1, "D = 40-69": 2, "S = +69": 3}
+data_clustering['Customer_age'] = df['Customer_age'].map(age_mapping)
+
+# Imputación de valores faltantes en 'Customer_age' usando la mediana
+data_clustering['Customer_age'].fillna(data_clustering['Customer_age'].median(), inplace=True)
+
+# Codificación de variables categóricas
+label_columns = ['Payment_frequency', 'Customer_type', 'Customer_region']
+for col in label_columns:
+    data_clustering[col] = data_clustering[col].astype('category').cat.codes
     
-age_order = ['A = 18-24', 'B = 25-29', 'C = 30-39', 'D = 40-69', 'S = +69', 'No age']
-
-# Convertimos la columna de edad respetando el orden específico
-ordinal_encoder = OrdinalEncoder(categories=[age_order])
-df_encoded['Customer_age'] = ordinal_encoder.fit_transform(df[['Customer_age']])
-
-# Escalamiento de las características numéricas
 scaler = StandardScaler()
-X_scaled = scaler.fit_transform(df_encoded[features])
+data_scaled = scaler.fit_transform(data_clustering)
 
-# Determinar el número óptimo de clusters utilizando el método del codo
-inertia = []
-range_n_clusters = range(1, 11)
-for n_clusters in range_n_clusters:
-    kmeans = KMeans(n_clusters=n_clusters, random_state=0)
-    kmeans.fit(X_scaled)
-    inertia.append(kmeans.inertia_)
-    
-plt.figure(figsize=(10, 6))
-plt.plot(range_n_clusters, inertia, marker='o')
-plt.xlabel('Número de Clusters')
-plt.ylabel('Inercia')
-plt.title('Método del Codo para Determinar el Número de Clusters')
-plt.show()
+kmeans_4_clusters = KMeans(n_clusters=4, random_state=42)
+data_clustering['Cluster'] = kmeans_4_clusters.fit_predict(data_scaled)
 
-n_clusters_optimo = 3
-kmeans = KMeans(n_clusters=n_clusters_optimo, random_state=0)
-df_encoded['Customer_segment'] = kmeans.fit_predict(X_scaled)
+data_clustering["Is_direct_debit"] = data_clustering["Is_direct_debit"].astype("float")
 
-# Análisis de los resultados de segmentación
-# Ver la cantidad de clientes en cada segmento
-print(df_encoded['Customer_segment'].value_counts())
-
-plt.figure(figsize=(10, 6))
-plt.scatter(X_scaled[:, 0], X_scaled[:, 1], c=df_encoded['Customer_segment'], cmap='viridis')
-plt.xlabel('Customer_age')
-plt.ylabel('Annual_premium')
-plt.title('Segmentación de Clientes por Edad y Prima Anual')
-plt.show()
+cluster_descriptions = data_clustering.groupby('Cluster').mean()
+print(cluster_descriptions)
 ```
 
 ## Clasificación de clientes
 
-```{python}
-#| cache: true
-#| layout-nrow: 2
-customer_segment_counts = df_encoded['Customer_segment'].value_counts()
+::: {.smaller}
 
-# Crear la gráfica de barras
-plt.figure(figsize=(10, 6))
-customer_segment_counts.plot(kind='bar', color=palette[1])
-plt.title('Conteo de Clientes por Segmento')
-plt.xlabel('Segmento de Cliente')
-plt.ylabel('Conteo')
-ax = plt.gca()
-ax.set_xticklabels(["1", "2", "3"])
+* **Grupo 0:** Clientes con prima anual baja (428.08) y pagos frecuentes. Predominan los clientes de tipo 1 con domiciliación bancaria y se encuentran en una variedad de regiones. La edad promedio está en el intervalo de 40-69 años.
+
+* **Grupo 1:** Clientes con una prima anual muy baja (289.56) y sin domiciliación bancaria. Son principalmente del tipo 1 y presentan una edad promedio también en el rango de 40-69 años.
+
+* **Grupo 2:** Clientes con una prima anual extremadamente alta (aproximadamente 3 millones), sin domiciliación bancaria y de tipo 0, lo que podría representar grandes empresas o cuentas de alto valor. Este grupo tiene una edad promedio desconocida o no especificada.
+
+* **Grupo 3:** Clientes con una prima anual media (1361.31), pagos anuales en su mayoría y una baja proporción de domiciliación bancaria. Son principalmente del tipo 0, con una edad promedio no especificada o en un rango más bajo.
+
+:::
+
+# Predicción de clientes y análisis de principales características
+
+## Características Principales
+### Regresión logística
+
+```{python}
+data = {
+    "Feature": [
+        "Payment_frequency_Semi-annually",
+        "Product_type_A08 - TRPT AGR",
+        "Broker_account_number_UTAY893976000598587",
+        "Customer_segment_Retail",
+        "Product_type_A05 - CYCLO",
+        "Payment_frequency_Quarterly",
+        "Broker_account_number_WIGT39999791589661",
+        "Broker_account_number_LMUX8426177618576",
+        "Broker_account_number_MKDP7583896811338",
+        "Line_of_business_N - Accident"
+    ],
+    "Absolute Coefficient": [
+        4.175060,
+        3.086581,
+        2.171210,
+        1.971717,
+        1.902525,
+        1.847862,
+        1.721719,
+        1.673963,
+        1.655654,
+        1.601209
+    ]
+}
+
+# Convertir los datos a un DataFrame
+df_coefficients = pd.DataFrame(data)
+
+# Ordenar los coeficientes de mayor a menor
+df_coefficients = df_coefficients.sort_values("Absolute Coefficient", ascending=False)
+
+# Normalizar los coeficientes absolutos para el mapeo de color
+norm = plt.Normalize(df_coefficients['Absolute Coefficient'].min(), df_coefficients['Absolute Coefficient'].max())
+cmap = plt.get_cmap("Blues")  # Paleta de colores "Blues" para el degradado
+
+# Crear una gráfica de barras con el mapeo de colores
+plt.figure(figsize=(10, 5))  # Aumentar el tamaño de la figura para más espacio
+bars = sns.barplot(x="Absolute Coefficient", y="Feature", data=df_coefficients, color=palette[1], edgecolor="none")
+
+# Aplicar degradado a las barras usando el valor normalizado
+for bar in bars.patches:
+    # Asignar un color que varía del 0.3 (oscuro) al 0.8 (menos oscuro)
+    bar.set_facecolor(cmap(0.3 + 0.5 * norm(bar.get_width())))
+    # Añadir el valor del coeficiente en el centro de cada barra en blanco, negritas y tamaño mayor
+    bars.text(
+        bar.get_width() - 0.1,  # Posición x (ajustada para que no esté pegada al borde)
+        bar.get_y() + bar.get_height() / 2,  # Posición y
+        f'{bar.get_width():.2f}',  # Formato del coeficiente
+        ha='right',  # Alinear a la derecha
+        va='center',  # Alinear verticalmente al centro
+        fontsize=14, color="white", fontweight="bold"  # Fuente más grande, color blanco, y en negritas
+    )
+
+# Personalizar el gráfico con letras más grandes
+plt.title("Característica más importantes", fontsize=20)  # Título más grande
+plt.xlabel("Absolute Coefficient", fontsize=16)  # Etiqueta del eje X más grande
+plt.ylabel("Características", fontsize=16)  # Etiqueta del eje Y más grande
+
+# Asegurar que las etiquetas de las barras sean legibles
+plt.xticks(fontsize=14)
+plt.yticks(fontsize=14)
 ax.spines["top"].set_visible(False)
 ax.spines["right"].set_visible(False)
+
 plt.show()
 ```
 
-## Características relevante
+## Características principales
+### Random Forest
 
 ```{python}
-plt.figure(figsize=(10, 6))
-sns.scatterplot(x='Customer_age', y='Annual_premium', hue='Customer_segment', data=df_encoded, palette='viridis')
-plt.xlabel('Customer Age')
-plt.ylabel('Annual Premium')
-plt.title('Segmentación de Clientes por Edad y Prima Anual')
-plt.legend(title="Customer Segment")
+data = {
+    "Feature": [
+        "Annual_premium",
+        "Broker_cor_scaled",
+        "Payment_frequency_Semi-annually",
+        "Customer_age_No age",
+        "Payment_frequency_Quarterly",
+        "Customer_urbanization_Urban",
+        "Customer_age_S = +69",
+        "Customer_type_Physical person",
+        "Customer_segment_Retail",
+        "Customer_age_D = 40-69"
+    ],
+    "Importance": [
+        0.369690,
+        0.031248,
+        0.024664,
+        0.018388,
+        0.018188,
+        0.015378,
+        0.015249,
+        0.013031,
+        0.011919,
+        0.011679
+    ]
+}
+
+# Convertir los datos a un DataFrame
+df_importance = pd.DataFrame(data)
+
+# Ordenar las importancias de mayor a menor
+df_importance = df_importance.sort_values("Importance", ascending=False)
+
+# Normalizar las importancias para el mapeo de color
+norm = plt.Normalize(df_importance['Importance'].min(), df_importance['Importance'].max())
+cmap = plt.get_cmap("Blues")  # Paleta de colores "Blues" para el degradado
+
+# Crear una gráfica de barras con el mapeo de colores
+plt.figure(figsize=(10, 5))  # Aumentar el tamaño de la figura para más espacio
+bars = sns.barplot(x="Importance", y="Feature", data=df_importance, palette="Blues", edgecolor="none")
+
+# Aplicar degradado a las barras usando el valor normalizado
+for bar in bars.patches:
+    # Asignar un color que varía del 0.3 (oscuro) al 0.8 (menos oscuro)
+    bar.set_facecolor(cmap(0.3 + 0.5 * norm(bar.get_width())))
+    
+    # Mostrar el valor dentro de la barra solo para "Annual_premium"
+    if bar.get_y() == df_importance[df_importance["Feature"] == "Annual_premium"].index[0]:
+        bars.text(
+            bar.get_width() - 0.005,  # Posición x (ajustada para que no esté pegada al borde)
+            bar.get_y() + bar.get_height() / 2,  # Posición y
+            f'{bar.get_width():.5f}',  # Formato del valor de importancia con cinco decimales
+            ha='right',  # Alinear a la derecha
+            va='center',  # Alinear verticalmente al centro
+            fontsize=14, color="white"  # Fuente y color de la etiqueta en blanco, tamaño aumentado
+        )
+    else:
+        # Para las demás barras, mostrar el valor fuera, al final de la barra
+        bars.text(
+            bar.get_width() + 0.002,  # Posición x para que esté fuera de la barra
+            bar.get_y() + bar.get_height() / 2,  # Posición y
+            f'{bar.get_width():.2f}',  # Formato del valor de importancia con cinco decimales
+            ha='left',  # Alinear a la izquierda
+            va='center',  # Alinear verticalmente al centro
+            fontsize=14, color="black"  # Fuente y color de la etiqueta en negro, tamaño aumentado
+        )
+
+# Personalizar el gráfico con letras más grandes
+plt.title("Características más importantes", fontsize=20)  # Título más grande
+plt.xlabel("Importancia", fontsize=16)  # Etiqueta del eje X más grande
+plt.ylabel("Característica", fontsize=16)  # Etiqueta del eje Y más grande
+
+# Asegurar que las etiquetas de las barras sean legibles
+plt.xticks(fontsize=14)
+plt.yticks(fontsize=14)
+
+# Eliminar los bordes superior y derecho
+ax = plt.gca()
+ax.spines["top"].set_visible(False)
+ax.spines["right"].set_visible(False)
+
 plt.show()
+
+```
+
+# Anexo
+
+## Método del codo para selección de grupos
+
+```{python}
+wcss = []
+max_clusters = 10  # Test clusters from 1 to 10
+for i in range(1, max_clusters + 1):
+    kmeans = KMeans(n_clusters=i, random_state=42)
+    kmeans.fit(data_scaled)
+    wcss.append(kmeans.inertia_)
+
+# Plotting the Elbow Method chart
+plt.figure(figsize=(10, 5))
+plt.plot(range(1, max_clusters + 1), wcss, marker='o')
+plt.title('Método del Codo para Determinar el Número de Clusters')
+plt.xlabel('Número de Clusters')
+plt.ylabel('Suma de Cuadrados Internos de los Clusters (WCSS)')
+plt.show()
+
 ```
 
