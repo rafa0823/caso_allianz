@@ -28,6 +28,11 @@ from sklearn.compose import ColumnTransformer
 from scipy.sparse import save_npz
 from scipy.sparse import load_npz
 from sklearn.feature_selection import SelectKBest, chi2
+import numpy as np
+from sklearn.linear_model import LogisticRegression
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import classification_report, confusion_matrix
+from scipy import sparse
 
 
 import warnings 
@@ -71,7 +76,7 @@ from sklearn.ensemble import RandomForestClassifier
 import numpy as np
 
 # Initialize Random Forest with parallel processing
-rf = RandomForestClassifier(n_estimators=100, n_jobs=-1, random_state=42)
+rf = RandomForestClassifier(n_estimators=100, n_jobs=-1, random_state=42, class_weight='balanced')
 rf.fit(X_reduced, y)
 
 # Get feature importances
@@ -85,4 +90,511 @@ selected_features = selected_columns[indices]
 print("Selected Features:")
 print(selected_features)
 
+```
+
+```{python}
+# 'selected_features' contains the names of the top features
+X_selected = X_positive[selected_features]
+
+# If not already sparse, convert to a sparse matrix
+if not sparse.issparse(X_selected):
+    X_selected_sparse = sparse.csr_matrix(X_selected.values)
+else:
+    X_selected_sparse = X_selected
+```
+
+```{python}
+X_train, X_test, y_train, y_test = train_test_split(
+    X_selected_sparse,
+    y,
+    test_size=0.2,       # 20% for testing
+    random_state=42,
+    stratify=y           # Maintains class proportion
+)
+```
+
+
+```{python}
+# Initialize Logistic Regression with class_weight and appropriate solver
+lr = LogisticRegression(
+    class_weight='balanced',
+    max_iter=1000,
+    solver='saga',        # 'saga' supports sparse data
+    n_jobs=-1,
+    random_state=42
+)
+
+# Fit the model on the training data
+lr.fit(X_train, y_train)
+
+```
+
+```{python}
+# Predict the target variable for the test set
+y_pred = lr.predict(X_test)
+
+# Generate classification report
+print("Classification Report:")
+print(classification_report(y_test, y_pred))
+
+# Display confusion matrix
+print("Confusion Matrix:")
+print(confusion_matrix(y_test, y_pred))
+```
+
+```{python}
+from collections import Counter
+print("Training set class distribution:", Counter(y_train))
+print("Test set class distribution:", Counter(y_test))
+
+```
+
+## Balanceo de la clase minoritaria
+
+```{python}
+from imblearn.under_sampling import RandomUnderSampler
+
+rus = RandomUnderSampler(random_state=42)
+X_resampled, y_resampled = rus.fit_resample(X_train, y_train)
+```
+
+```{python}
+lr.fit(X_resampled, y_resampled)
+```
+
+```{python}
+y_pred = lr.predict(X_test)
+print(classification_report(y_test, y_pred))
+print("Confusion Matrix:")
+print(confusion_matrix(y_test, y_pred))
+```
+
+```{python}
+import xgboost as xgb
+
+# Convert data to DMatrix format
+dtrain = xgb.DMatrix(X_train, label=y_train)
+dtest = xgb.DMatrix(X_test, label=y_test)
+
+# Set parameters with scale_pos_weight
+scale_pos_weight = np.sum(y_train == 0) / np.sum(y_train == 1)
+params = {
+    'objective': 'binary:logistic',
+    'eval_metric': 'auc',
+    'scale_pos_weight': scale_pos_weight,
+    'seed': 42
+}
+
+# Train the model
+bst = xgb.train(params, dtrain, num_boost_round=100)
+
+# Make predictions
+y_pred_xgb = (bst.predict(dtest) > 0.5).astype(int)
+
+# Evaluate
+print(classification_report(y_test, y_pred_xgb))
+print("Confusion Matrix:")
+print(confusion_matrix(y_test, y_pred_xgb))
+```
+
+## Balanceo antes de seleccionar variables
+
+```{python}
+from imblearn.under_sampling import RandomUnderSampler
+
+# Initialize the under-sampler
+rus = RandomUnderSampler(random_state=42)
+
+# Apply under-sampling to balance the classes
+X_balanced, y_balanced = rus.fit_resample(X, y)
+```
+
+### Quitar características de baja varianza
+
+```{python}
+from sklearn.feature_selection import VarianceThreshold
+
+# Remove features with very low variance
+selector = VarianceThreshold(threshold=0.001)
+X_reduced = selector.fit_transform(X_balanced)
+selected_columns = X_balanced.columns[selector.get_support(indices=True)]
+```
+
+
+```{python}
+from sklearn.ensemble import RandomForestClassifier
+import numpy as np
+
+# Initialize Random Forest
+rf = RandomForestClassifier(n_estimators=100, n_jobs=-1, random_state=42)
+rf.fit(X_reduced, y_balanced)
+
+# Get feature importances
+importances = rf.feature_importances_
+```
+
+```{python}
+# Select top K features
+k = 10
+indices = np.argsort(importances)[::-1][:k]
+selected_features = selected_columns[indices]
+
+print("Selected Features:")
+print(selected_features)
+```
+
+```{python}
+from collections import Counter
+
+# Check the distribution of the target variable
+counter = Counter(y_balanced)
+print('Class distribution after balancing:', counter)
+```
+
+### Especificación de variables explicativas y variable dependiente
+
+```{python}
+# Extract the selected features from the balanced dataset
+X_selected = X_balanced[selected_features]
+y_selected = y_balanced
+```
+
+### Definición de conjunto de entrenamiento y prueba
+
+```{python}
+from sklearn.model_selection import train_test_split
+
+# Split the data
+X_train, X_test, y_train, y_test = train_test_split(
+    X_selected,
+    y_selected,
+    test_size=0.2,
+    random_state=42,
+    stratify=y_selected  # Preserves class proportions
+)
+```
+
+### Instanciación del modelo
+
+```{python}
+from sklearn.linear_model import LogisticRegression
+
+# Initialize the model
+lr = LogisticRegression(
+    max_iter=1000,
+    solver='saga',        # Efficient for sparse data
+    n_jobs=-1,
+    random_state=42
+)
+
+# Train the model
+lr.fit(X_train, y_train)
+
+```
+
+### Evaluación del modelo
+
+```{python}
+from sklearn.metrics import classification_report, confusion_matrix
+
+# Make predictions on the test set
+y_pred = lr.predict(X_test)
+
+# Print the classification report
+print("Classification Report:")
+print(classification_report(y_test, y_pred))
+
+# Print the confusion matrix
+print("Confusion Matrix:")
+print(confusion_matrix(y_test, y_pred))
+
+```
+
+```{python}
+y_pred_proba = lr.predict_proba(X_test)[:, 1]
+print("Predicted probabilities for the positive class:", y_pred_proba)
+
+```
+
+```{python}
+# Set a lower threshold
+threshold = 0.45  # You can experiment with different values
+
+# Generate new predictions
+y_pred_adjusted = (y_pred_proba >= threshold).astype(int)
+
+# Evaluate
+print("Classification Report with Adjusted Threshold:")
+print(classification_report(y_test, y_pred_adjusted))
+print("Confusion Matrix:")
+print(confusion_matrix(y_test, y_pred_adjusted))
+```
+
+## Quinto intento, balancear y correr random forest con todos los datos. 
+
+```{python}
+X = encoded_df.drop('Is_direct_debit', axis=1)
+y = encoded_df['Is_direct_debit']
+
+from imblearn.under_sampling import RandomUnderSampler
+
+# Initialize the under-sampler
+rus = RandomUnderSampler(random_state=42)
+
+# Apply under-sampling to balance the classes
+X_balanced, y_balanced = rus.fit_resample(X, y)
+
+from sklearn.feature_selection import VarianceThreshold
+
+# Remove features with very low variance
+selector = VarianceThreshold(threshold=0.001)
+X_reduced = selector.fit_transform(X_balanced)
+selected_columns = X_balanced.columns[selector.get_support(indices=True)]
+```
+### Especificación de variables explicativas y variable dependiente
+
+```{python}
+# Extract the selected features from the balanced dataset
+X_selected = X_balanced
+y_selected = y_balanced
+```
+
+### Definición de conjunto de entrenamiento y prueba
+
+```{python}
+from sklearn.model_selection import train_test_split
+
+# Split the data
+X_train, X_test, y_train, y_test = train_test_split(
+    X_selected,
+    y_selected,
+    test_size=0.2,
+    random_state=42
+)
+```
+
+### Instanciación del modelo
+
+```{python}
+from sklearn.linear_model import LogisticRegression
+
+# Initialize the model
+lr = LogisticRegression(
+    max_iter=1000,
+    solver='saga',        # Efficient for sparse data
+    n_jobs=-1,
+    random_state=42
+)
+
+# Train the model
+lr.fit(X_train, y_train)
+
+```
+
+### Evaluación del modelo
+
+```{python}
+from sklearn.metrics import classification_report, confusion_matrix
+
+# Make predictions on the test set
+y_pred = lr.predict(X_test)
+
+# Print the classification report
+print("Classification Report:")
+print(classification_report(y_test, y_pred))
+
+# Print the confusion matrix
+print("Confusion Matrix:")
+print(confusion_matrix(y_test, y_pred))
+
+```
+
+
+# 9no intento
+
+```{python}
+# Cargar la matriz dispersa
+sparse_matrix = load_npz("data/encoded_data_sparse.npz")
+
+# Step 2: Cargar los nombres de las columnas
+column_names = pd.read_csv("data/column_names.csv")["column_names"].tolist()
+
+# Step 3: Crear un DataFrame disperso con los datos cargados y los nombres de las columnas
+encoded_df = pd.DataFrame.sparse.from_spmatrix(sparse_matrix, columns=column_names)
+
+encoded_df = encoded_df.drop("Payment_frequency_Monthly", axis=1)
+```
+
+```{python}
+# Separar las clases mayoritaria y minoritaria
+df_majority = encoded_df[encoded_df['Is_direct_debit'] == 0.0]
+df_minority = encoded_df[encoded_df['Is_direct_debit'] == 1.0]
+
+# Realizar undersampling en la clase mayoritaria
+df_majority_downsampled = resample(df_majority, 
+                                   replace=False,    # muestra sin reemplazo
+                                   n_samples=len(df_minority),     # para igualar el número de casos en la clase minoritaria
+                                   random_state=42)  # para reproducibilidad
+
+# Combinar la clase minoritaria con la clase mayoritaria submuestreada
+df_balanced = pd.concat([df_majority_downsampled, df_minority])
+```
+
+
+```{python}
+X = df_balanced.drop('Is_direct_debit', axis=1)
+y = df_balanced['Is_direct_debit']
+```
+
+```{python}
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+```
+
+```{python}
+from sklearn.linear_model import LogisticRegression
+
+lr = LogisticRegression(
+    max_iter=1000,
+    random_state=42
+)
+
+# Fit the model on the training data
+lr.fit(X_train, y_train)
+```
+
+```{python}
+# Predict the target variable for the test set
+y_pred = lr.predict(X_test)
+
+# Generate classification report
+print("Classification Report:")
+print(classification_report(y_test, y_pred))
+
+# Display confusion matrix
+print("Confusion Matrix:")
+print(confusion_matrix(y_test, y_pred))
+
+```
+
+### Identificación de variables relevantes
+
+```{python}
+# Get the coefficients and feature names
+coefficients = lr.coef_[0]
+feature_names = X_train.columns
+
+# Create a DataFrame to display them together
+import pandas as pd
+
+coef_df = pd.DataFrame({
+    'Feature': feature_names,
+    'Coefficient': coefficients
+})
+
+# Calculate the absolute value of coefficients to find the most influential variables
+coef_df['Absolute Coefficient'] = coef_df['Coefficient'].abs()
+
+# Sort the DataFrame by absolute coefficient value in descending order
+coef_df = coef_df.sort_values(by='Absolute Coefficient', ascending=False)
+
+# Display the top variables
+print("Most Important Variables:")
+print(coef_df.head(10))
+```
+
+```{python}
+# Import necessary libraries
+import matplotlib.pyplot as plt
+from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay
+
+# Compute confusion matrix
+cm = confusion_matrix(y_test, y_pred)
+
+# Plot confusion matrix
+disp = ConfusionMatrixDisplay(confusion_matrix=cm, display_labels=lr.classes_)
+disp.plot(cmap=plt.cm.Blues)
+plt.title('Confusion Matrix')
+plt.show()
+
+```
+
+```{python}
+from sklearn.metrics import roc_curve, auc
+
+# Get predicted probabilities for the positive class
+y_scores = lr.predict_proba(X_test)[:, 1]
+
+# Compute ROC curve and ROC area
+fpr, tpr, thresholds = roc_curve(y_test, y_scores)
+roc_auc = auc(fpr, tpr)
+
+# Plot ROC curve
+plt.figure()
+plt.plot(fpr, tpr, color='darkorange', lw=2, label=f'ROC Curve (area = {roc_auc:.2f})')
+plt.plot([0, 1], [0, 1], color='navy', lw=2, linestyle='--')  # Diagonal line
+plt.xlim([0.0, 1.0])
+plt.ylim([0.0, 1.05])
+plt.xlabel('False Positive Rate')
+plt.ylabel('True Positive Rate')
+plt.title('Receiver Operating Characteristic (ROC)')
+plt.legend(loc='lower right')
+plt.show()
+```
+
+### Random forest
+
+```{python}
+from sklearn.ensemble import RandomForestClassifier
+rf = RandomForestClassifier(n_estimators=100, random_state=42, n_jobs=-1)
+rf.fit(X_train, y_train)
+```
+```{python}
+importances = rf.feature_importances_
+
+# Create a DataFrame of features and importances
+feature_importances = pd.DataFrame({
+    'Feature': X_train.columns,
+    'Importance': importances
+})
+
+# Sort and select top features
+top_features = feature_importances.sort_values(by='Importance', ascending=False).head(10)
+```
+
+Evaluación del modelo Random Forest
+
+```{python}
+# Predict the target variable for the test set
+y_pred = rf.predict(X_test)
+
+# Generate classification report
+print("Classification Report:")
+print(classification_report(y_test, y_pred))
+
+# Display confusion matrix
+print("Confusion Matrix:")
+print(confusion_matrix(y_test, y_pred))
+```
+
+```{python}
+from sklearn.metrics import roc_curve, auc
+
+# Get predicted probabilities for the positive class
+y_scores = rf.predict_proba(X_test)[:, 1]
+
+# Compute ROC curve and ROC area
+fpr, tpr, thresholds = roc_curve(y_test, y_scores)
+roc_auc = auc(fpr, tpr)
+
+# Plot ROC curve
+plt.figure()
+plt.plot(fpr, tpr, color='darkorange', lw=2, label=f'ROC Curve (area = {roc_auc:.2f})')
+plt.plot([0, 1], [0, 1], color='navy', lw=2, linestyle='--')  # Diagonal line
+plt.xlim([0.0, 1.0])
+plt.ylim([0.0, 1.05])
+plt.xlabel('False Positive Rate')
+plt.ylabel('True Positive Rate')
+plt.title('Receiver Operating Characteristic (ROC)')
+plt.legend(loc='lower right')
+plt.show()
 ```

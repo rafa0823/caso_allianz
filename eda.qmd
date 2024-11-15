@@ -7,7 +7,7 @@ warning: false
 format:
   revealjs:
     pagetitle: "Data Minning 2"
-    scrollable: true
+    scrollable: false
     slide-number: true
     show-slide-number: all
     logo: allianz.png
@@ -105,7 +105,7 @@ cat_cols = df.select_dtypes(include = "category").columns
 cat_cols = cat_cols.drop(labels=['Broker_account_number', 'Contract_number', 'Customer_ID'])
 ```
 
-## Distribución de variables categóricas
+## Distribución de variables categóricas {.scrollable}
 
 ```{python}
 #| label: gráficos
@@ -195,9 +195,7 @@ cluster_descriptions = data_clustering.groupby('Cluster').mean()
 print(cluster_descriptions)
 ```
 
-## Clasificación de clientes
-
-::: {.smaller}
+## Clasificación de clientes {.smaller}
 
 * **Grupo 0:** Clientes con prima anual baja (428.08) y pagos frecuentes. Predominan los clientes de tipo 1 con domiciliación bancaria y se encuentran en una variedad de regiones. La edad promedio está en el intervalo de 40-69 años.
 
@@ -207,7 +205,6 @@ print(cluster_descriptions)
 
 * **Grupo 3:** Clientes con una prima anual media (1361.31), pagos anuales en su mayoría y una baja proporción de domiciliación bancaria. Son principalmente del tipo 0, con una edad promedio no especificada o en un rango más bajo.
 
-:::
 
 # Predicción de clientes y análisis de principales características {background-color=#219ebc backgroun-opacity=0.8}
 
@@ -376,6 +373,19 @@ plt.show()
 
 ```
 
+## Conclusiones {.smaller}
+
+:::{.incremental}
+
+* **Estrategia 1:** Segmentar clientes de Allianz, identificando a todos los clientes que paguen semestralemente
+  * Acción táctica: *Campaña vìa Notificaciòn Push-Mailling* Ofertando un 5% de descuento en el valor total de su prima si domicilian su pago
+  * Acción táctica 2: *Campaña de pagos flexibles* Darles la opción de pago mensual o trimestral (no solo semestral) para que puedan tener mejor flujo de su efectivo
+* **Estrategia 2:** Segmentar e identificar a aquellos clientes con pólizas premium (y que estén pagando anual)
+  * Acción tácticas 1: Camapaña vía notificación *Push-Mailling* acercamiento de Broker para ofertar un plan de lealtad, al domiciliarse, podrà ganar puntos que podrá canjear por artìculos exclusivos en la página de Allianz.com
+  * Acción táctica 2. Plan de cobertura extendida. Al domiciliarse podrán obtener servicios adicionales a lo contratado a su póliza, por ejemplo, si es de auto, un viaje en grúa adicional, o asesoría legal.
+  
+:::  
+
 # Anexo
 
 ## Método del codo para selección de grupos
@@ -398,3 +408,14 @@ plt.show()
 
 ```
 
+## Evaluación de modelos {.scrollable}
+### Regresión logística con undersampling
+
+![](cm_lr.jpeg)
+![Curva ROC](roc_lr.jpeg)
+
+## Evaluación de modelos {.scrollable}
+### Random forest con undersampling
+
+![](cm_rf.jpeg)
+![](roc_rf.jpeg)
